@@ -9,4 +9,10 @@ A terminal-based AI music generator where you write music with code, generate lo
 - Export to .wav or .mp3
 
 ## Getting Started
-Coming soon...
+- Run ``pip install -r requirements.txt`` to install dependencies.
+
+## Tools Used
+- Mido
+    - For creating and exporting MIDI files from Python.
+- pygame.mixer.music
+    - For basic .wav or .mp3 playback from your CLI.
