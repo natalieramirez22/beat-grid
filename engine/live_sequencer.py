@@ -43,17 +43,23 @@ class LiveSequencer:
         steps = 16
 
         while self.running:
-            bpm = self.track.get_bpm()  # re-fetch every cycle
-            beat_duration = 60 / bpm / 4  # 16th note timing
+            bpm = self.track.get_bpm()
+            beat_duration = 60 / bpm / 4  # 16th note
 
             for i in range(steps):
                 if not self.running:
                     break
 
+                start_time = time.time()
                 self.step = i
+
                 for name, pattern in self.track.get_patterns().items():
                     if i < len(pattern) and pattern[i].upper() == "X":
                         self.sounds[name].play()
 
-                time.sleep(beat_duration)
+                # Wait precisely until the next step
+                elapsed = time.time() - start_time
+                wait_time = max(0, beat_duration - elapsed)
+                time.sleep(wait_time)
+
 
