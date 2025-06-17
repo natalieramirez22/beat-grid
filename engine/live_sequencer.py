@@ -53,7 +53,7 @@ class LiveSequencer:
                 start_time = time.time()
                 self.step = i
 
-                for name, pattern in self.track.get_patterns().items():
+                for name, pattern in self.track.get_patterns().copy().items():
                     if i < len(pattern) and pattern[i].upper() == "X":
                         self.sounds[name].play()
 

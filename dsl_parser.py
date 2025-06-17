@@ -1,6 +1,6 @@
 # dsl_parser.py
 
-from engine.midi_exporter import export_to_midi
+from engine.audio_exporter import export_to_wav
 
 def parse_command(cmd, track):
     tokens = cmd.strip().split()
@@ -24,10 +24,19 @@ def parse_command(cmd, track):
             print("no pattern provided.")
         else:
             track.add_pattern(instr, pattern)
-            print(f"{instr.title()} pattern set to: {pattern}")
+            print(f"{instr.title().lower()} pattern set to: {pattern}")
 
     elif command == "export":
-        export_to_midi(track)
+        format = "wav"
+
+        for t in tokens:
+            if "format=" in t:
+                format = t.split("=", 1)[1]
+
+        if format == "wav":
+            export_to_wav(track)
+        else:
+            print(f"unsupported export format: {format}")
 
     else:
         print(f"unknown command: {command}")

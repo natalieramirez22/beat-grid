@@ -34,14 +34,20 @@ def main():
             break
         elif command.strip().lower() == "help":
             print("""
-        
 available commands:
-  - set_bpm <value>
-  - add_kick pattern="X---X---X---X---"
-  - add_snare pattern="--X-----X-----X-"
-  - export
-  - exit
-            """)
+    - start
+    - stop
+    - set_bpm <value>
+    - add_bass pattern=<pattern>
+    - add_clap pattern=<pattern>
+    - add_hihat pattern=<pattern>
+    - add_kick pattern=<pattern>
+    - add_snare pattern=<pattern>
+    - export
+    - exit
+    \nnote: patterns can be a string of 'X' and '-' characters, where 'X' indicates a hit and '-' indicates silence
+    \nexample: pattern=X-X-X-X-X-X-X-X-
+                """)
         elif command.strip().lower() == "start":
             sequencer.start()
         elif command.strip().lower() == "stop":
