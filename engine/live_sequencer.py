@@ -3,6 +3,8 @@
 import pygame
 import time
 import threading
+from pyo import *
+from engine.synths import BassSynth, KickSynth, HatSynth, ClapSynth, SnareSynth
 
 SAMPLE_PATHS = {
     "kick": "assets/samples/kick.wav",
@@ -25,6 +27,23 @@ class LiveSequencer:
             name: pygame.mixer.Sound(path)
             for name, path in SAMPLE_PATHS.items()
         }
+        
+        # Start pyo server
+        self.server = Server().boot()
+        self.server.start()
+
+        self.playhead_callback = None  # UI will set this
+        
+        # Synth instances
+        self.bass_synth = BassSynth(self.server)
+        self.kick_synth = KickSynth(self.server)
+        self.hihat_synth = HatSynth(self.server)
+        self.clap_synth = ClapSynth(self.server)
+        self.snare_synth = SnareSynth(self.server)
+        track.sequencer = self
+        
+
+
 
     def start(self):
         self.running = True
@@ -47,15 +66,30 @@ class LiveSequencer:
             beat_duration = 60 / bpm / 4  # 16th note
 
             for i in range(steps):
+                if self.playhead_callback:
+                    self.playhead_callback(i)
+                    
                 if not self.running:
                     break
 
-                start_time = time.time()
                 self.step = i
+                start_time = time.time()
 
                 for name, pattern in self.track.get_patterns().copy().items():
                     if i < len(pattern) and pattern[i].upper() == "X":
-                        self.sounds[name].play()
+                        if name == "bass":
+                            self.bass_synth.play()
+                        elif name == "kick":
+                            self.kick_synth.play()
+                        elif name == "hihat":
+                            self.hihat_synth.play()
+                        elif name == "clap":
+                            self.clap_synth.play()
+                        elif name == "snare":
+                            self.snare_synth.play()
+                        else:
+                            self.sounds[name].set_volume(0.5)
+                            self.sounds[name].play()
 
                 # Wait precisely until the next step
                 elapsed = time.time() - start_time

@@ -37,6 +37,65 @@ def parse_command(cmd, track):
             export_to_wav(track)
         else:
             print(f"unsupported export format: {format}")
+    
+    elif command == "set_bass_synth":
+        if len(tokens) < 3:
+            print("Usage: set_bass_synth <param> <value>")
+            return
+        param = tokens[1]
+        value_str = tokens[2]
+        try:
+            value = float(value_str) if value_str.replace('.', '', 1).isdigit() else value_str
+            if not hasattr(track, "bass_synth_settings"):
+                track.bass_synth_settings = {}
+            track.bass_synth_settings[param] = value
+            if hasattr(track, "sequencer") and hasattr(track.sequencer, "bass_synth"):
+                track.sequencer.bass_synth.update(param, value)
+            print(f"Bass synth {param} set to {value}")
+        except Exception as e:
+            print(f"Error updating bass synth: {e}")
+            print("Usage: set_bass_synth <param> <value>")
+
+    elif command == "set_kick_synth":
+        if len(tokens) < 3:
+            print("Usage: set_kick_synth <param> <value>")
+            return
+        param = tokens[1]
+        value_str = tokens[2]
+        try:
+            value = float(value_str) if value_str.replace('.', '', 1).isdigit() else value_str
+            if hasattr(track, "sequencer") and hasattr(track.sequencer, "kick_synth"):
+                track.sequencer.kick_synth.update(param, value)
+            print(f"Kick synth {param} set to {value}")
+        except Exception as e:
+            print(f"Error updating kick synth: {e}")
+
+    elif command == "set_hihat_synth":
+        if len(tokens) < 3:
+            print("Usage: set_hihat_synth <param> <value>")
+            return
+        param, val = tokens[1], tokens[2]
+        value = float(val) if val.replace('.', '', 1).isdigit() else val
+        track.sequencer.hihat_synth.update(param, value)
+        print(f"Hihat synth {param} set to {value}")
+
+    elif command == "set_clap_synth":
+        if len(tokens) < 3:
+            print("Usage: set_clap_synth <param> <value>")
+            return
+        param, val = tokens[1], tokens[2]
+        value = float(val) if val.replace('.', '', 1).isdigit() else val
+        track.sequencer.clap_synth.update(param, value)
+        print(f"Clap synth {param} set to {value}")
+
+    elif command == "set_snare_synth":
+        if len(tokens) < 3:
+            print("Usage: set_snare_synth <param> <value>")
+            return
+        param, val = tokens[1], tokens[2]
+        value = float(val) if val.replace('.', '', 1).isdigit() else val
+        track.sequencer.snare_synth.update(param, value)
+        print(f"Snare synth {param} set to {value}")
 
     else:
         print(f"unknown command: {command}")

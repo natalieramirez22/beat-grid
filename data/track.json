@@ -1,8 +1,18 @@
 {
     "bpm": 128,
     "instruments": {
+      "bass": "--X-----X--X----",
       "kick": "X---X---X---X---",
-      "snare": "----X-------X---"
+      "hihat": "-X-X-X-X-X-X-X-X",
+      "clap": "----X-------X---"
+    },
+    "synth": {
+      "bass": ["set_bass_synth wave square",
+      "set_bass_synth freq 60",
+      "set_bass_synth decay 0.25"],
+      "kick": ["set_kick_synth base_freq 50",
+      "set_kick_synth decay 0.4",
+      "set_kick_synth volume 2.0"]
     }
   }
   
