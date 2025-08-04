@@ -1,4 +1,3 @@
-# mixer.py
 import tkinter as tk
 from tkinter import ttk
 
@@ -6,120 +5,150 @@ class MixerUI:
     def __init__(self, sequencer):
         self.sequencer = sequencer
         self.track = sequencer.track
-        self.current_playhead = 0
-        self.playhead_callback = self.highlight_playhead
-        sequencer.playhead_callback = self.playhead_callback
 
         self.root = tk.Tk()
-        self.root.title("Music Mixer")
-        self.root.configure(bg="#2E2E2E")
+        self.root.title("CLI Music Mixer")
+        self.root.configure(bg="#1e1e1e")
 
-        # Pattern grid
-        self.steps = 16
         self.instruments = ["kick", "bass", "clap", "snare", "hihat"]
-        self.pattern_buttons = {instr: [] for instr in self.instruments}
+        self.steps = 16
+        self.pads = {instr: [] for instr in self.instruments}
+        self.current_playhead = None
 
-        grid_frame = tk.Frame(self.root, bg="#2E2E2E")
-        grid_frame.pack(pady=10)
+        self.sequencer.playhead_callback = self.highlight_playhead
+
+        # ===== BUTTON STYLE FIX =====
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure(
+            "Dark.TButton",
+            background="#333333",
+            foreground="white",
+            font=("Helvetica", 10, "bold"),
+            padding=5,
+            relief="flat"
+        )
+        style.map(
+            "Dark.TButton",
+            background=[("active", "#555555")],
+            foreground=[("active", "white")]
+        )
+
+        # ===== PADS SECTION =====
+        pad_frame = tk.Frame(self.root, bg="#1e1e1e")
+        pad_frame.pack(pady=10)
 
         for row, instr in enumerate(self.instruments):
-            tk.Label(grid_frame, text=instr.upper(), fg="white", bg="#2E2E2E").grid(row=row, column=0, padx=5)
+            tk.Label(pad_frame, text=instr.upper(), fg="white", bg="#1e1e1e").grid(row=row, column=0, padx=5, pady=2, sticky="w")
+
             for col in range(self.steps):
-                btn = tk.Button(grid_frame, width=2, height=1, bg="lightgray",
-                                command=lambda i=instr, c=col: self.toggle_step(i, c))
-                btn.grid(row=row, column=col+1, padx=1, pady=1)
-                self.pattern_buttons[instr].append(btn)
+                pad = tk.Canvas(
+                    pad_frame,
+                    width=20, height=20,
+                    bg="#2b2b2b",
+                    highlightthickness=1,
+                    highlightbackground="#555"
+                )
+                pad.grid(row=row, column=col + 1, padx=1, pady=1)
+                pad.bind("<Button-1>", lambda e, i=instr, c=col: self.toggle_pad(i, c))
+                self.pads[instr].append(pad)
 
-            clear_btn = tk.Button(grid_frame, text="Clear", command=lambda i=instr: self.clear_pattern(i))
-            clear_btn.grid(row=row, column=self.steps+2, padx=5)
+            clear_btn = ttk.Button(
+                pad_frame, text="Clear",
+                style="Dark.TButton",
+                command=lambda i=instr: self.clear_pattern(i)
+            )
+            clear_btn.grid(row=row, column=self.steps + 1, padx=5)
 
-        # Controls frame (start/stop + sliders)
-        controls_frame = tk.Frame(self.root, bg="#2E2E2E")
-        controls_frame.pack(pady=10)
+        # ===== CONTROL BUTTONS =====
+        control_frame = tk.Frame(self.root, bg="#1e1e1e")
+        control_frame.pack(pady=10)
 
-        tk.Button(controls_frame, text="Start", command=self.sequencer.start).grid(row=0, column=0, padx=10)
-        tk.Button(controls_frame, text="Stop", command=self.sequencer.stop).grid(row=0, column=1, padx=10)
+        ttk.Button(control_frame, text="Start", style="Dark.TButton",
+                  command=self.sequencer.start).grid(row=0, column=0, padx=5)
+        ttk.Button(control_frame, text="Stop", style="Dark.TButton",
+                  command=self.stop_all).grid(row=0, column=1, padx=5)
+        ttk.Button(control_frame, text="Exit", style="Dark.TButton",
+                  command=self.exit_app).grid(row=0, column=2, padx=5)
 
-        # Sliders section
-        sliders_frame = tk.Frame(self.root, bg="#2E2E2E")
-        sliders_frame.pack(pady=10)
+        # ===== SLIDERS =====
+        slider_frame = tk.Frame(self.root, bg="#1e1e1e")
+        slider_frame.pack(pady=20)
 
-        # Kick controls
-        self.add_slider_group(sliders_frame, "Kick", self.sequencer.kick_synth, 
-                              [("volume", 0, 5, 1.5), ("decay", 0.05, 1.0, self.sequencer.kick_synth.decay)], 0)
+        self.add_slider_group(slider_frame, "Kick", self.sequencer.kick_synth, [
+            ("Volume", "volume", 0, 5, 0.1),
+            ("Decay", "decay", 0.05, 1.0, 0.01)
+        ])
 
-        # Bass controls
-        self.add_slider_group(sliders_frame, "Bass", self.sequencer.bass_synth,
-                              [("volume", 0, 5, 1.0), ("freq", 30, 120, 60), ("decay", 0.05, 1.0, self.sequencer.bass_synth.decay)], 1)
+        self.add_slider_group(slider_frame, "Bass", self.sequencer.bass_synth, [
+            ("Volume", "volume", 0, 5, 0.1),
+            ("Freq", "freq", 30, 120, 1),
+            ("Decay", "decay", 0.05, 1.0, 0.01)
+        ], wave_control=True)
 
-        # Waveform selector for bass
-        tk.Label(sliders_frame, text="Bass Wave", fg="white", bg="#2E2E2E").grid(row=2, column=1, pady=2)
-        bass_wave = ttk.Combobox(sliders_frame, values=["saw", "square", "sine"])
-        bass_wave.set(self.sequencer.bass_synth.wave)
-        bass_wave.bind("<<ComboboxSelected>>", lambda e: self.sequencer.bass_synth.update("wave", bass_wave.get()))
-        bass_wave.grid(row=3, column=1, pady=2)
+    def add_slider_group(self, parent, name, synth, params, wave_control=False):
+        group_frame = tk.LabelFrame(parent, text=f"{name} Controls",
+                                    fg="white", bg="#1e1e1e",
+                                    labelanchor="n", highlightbackground="#555")
+        group_frame.pack(side="top", pady=10)
 
-        # Hihat
-        self.add_slider_group(sliders_frame, "Hihat", self.sequencer.hihat_synth,
-                              [("volume", 0, 5, 1.0)], 2)
-
-        # Clap
-        self.add_slider_group(sliders_frame, "Clap", self.sequencer.clap_synth,
-                              [("volume", 0, 5, 1.0)], 3)
-
-        # Snare
-        self.add_slider_group(sliders_frame, "Snare", self.sequencer.snare_synth,
-                              [("volume", 0, 5, 1.0)], 4)
-
-    def add_slider_group(self, parent, name, synth, sliders, col):
-        """Create grouped sliders for each instrument."""
-        frame = tk.Frame(parent, bg="#2E2E2E")
-        frame.grid(row=0, column=col, padx=10, sticky="n")
-
-        tk.Label(frame, text=f"{name} Controls", fg="white", bg="#2E2E2E").pack()
-
-        for param, mn, mx, default in sliders:
-            tk.Label(frame, text=f"{param.capitalize()}", fg="white", bg="#2E2E2E").pack()
-            slider = tk.Scale(frame, from_=mn, to=mx, resolution=0.1 if param != "freq" else 1,
-                              orient="horizontal", command=lambda v, p=param: synth.update(p, float(v)))
+        for label, param, minv, maxv, step in params:
+            tk.Label(group_frame, text=f"{label}", fg="white", bg="#1e1e1e").pack()
+            slider = tk.Scale(
+                group_frame,
+                from_=minv, to=maxv,
+                resolution=step,
+                orient="horizontal",
+                length=200,
+                bg="#1e1e1e",
+                fg="white",
+                troughcolor="#333333",
+                highlightthickness=0,
+                command=lambda v, p=param: synth.update(p, float(v))
+            )
             try:
                 val = getattr(synth, param)
                 slider.set(val.value if hasattr(val, "value") else val)
             except:
-                slider.set(default)
+                pass
             slider.pack()
 
-    def toggle_step(self, instr, col):
-        pattern = list(self.track.get_patterns().get(instr, "-"*self.steps))
+        if wave_control:
+            tk.Label(group_frame, text="Wave", fg="white", bg="#1e1e1e").pack()
+            bass_wave = ttk.Combobox(group_frame, values=["saw", "square", "sine"])
+            bass_wave.set(synth.wave)
+            bass_wave.bind("<<ComboboxSelected>>", lambda e: synth.update("wave", bass_wave.get()))
+            bass_wave.pack()
+
+    def toggle_pad(self, instr, col):
+        pattern = list(self.track.get_patterns().get(instr, "-" * self.steps))
         pattern[col] = "X" if pattern[col] == "-" else "-"
         self.track.add_pattern(instr, "".join(pattern))
-        self.pattern_buttons[instr][col].config(bg="green" if pattern[col] == "X" else "lightgray")
+        self.update_pad_colors(instr)
+
+    def update_pad_colors(self, instr):
+        pattern = self.track.get_patterns().get(instr, "-" * self.steps)
+        for col, pad in enumerate(self.pads[instr]):
+            if pad.winfo_exists():
+                pad.configure(bg="#ff7f50" if pattern[col] == "X" else "#2b2b2b")
 
     def clear_pattern(self, instr):
-        self.track.add_pattern(instr, "-"*self.steps)
-        for btn in self.pattern_buttons[instr]:
-            btn.config(bg="lightgray")
+        self.track.add_pattern(instr, "-" * self.steps)
+        self.update_pad_colors(instr)
 
     def highlight_playhead(self, step):
         self.current_playhead = step
         for instr in self.instruments:
-            pattern = self.track.get_patterns().get(instr, "-"*self.steps)
-            for idx, btn in enumerate(self.pattern_buttons[instr]):
-                if idx == step and step < len(pattern):
-                    btn.config(bg="red" if pattern[idx] == "X" else "#ffcccc")
-                else:
-                    btn.config(bg="green" if pattern[idx] == "X" else "lightgray")
+            self.update_pad_colors(instr)
+
+    def stop_all(self):
+        self.sequencer.stop()
+        self.sequencer.bass_synth.update("volume", 0)
+
+    def exit_app(self):
+        self.stop_all()
+        self.root.quit()
+        self.root.destroy()
 
     def start(self):
         self.root.mainloop()
-
-    def close_app(self):
-        try:
-            self.sequencer.stop()
-            if hasattr(self.sequencer, "server"):
-                self.sequencer.server.stop()
-                self.sequencer.server.shutdown()
-        except:
-            pass
-        self.root.quit()
-        self.root.destroy()
