@@ -109,8 +109,9 @@ class LiveSequencer:
     # ---------------- internal loop ----------------
 
     def _run_loop(self):
-        steps = 16
         while not self._stop_event.is_set():
+            # configurable pattern length for beats
+            steps = int(getattr(self.track, "get_steps", lambda: 16)())
             bpm_now = max(1, int(self.track.get_bpm()))
             step_sec = 60.0 / bpm_now / 4.0  # 16th note
             for i in range(steps):
