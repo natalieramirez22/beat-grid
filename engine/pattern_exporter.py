@@ -1,34 +1,61 @@
 # engine/pattern_exporter.py
+"""
+Preset (JSON) save/load helpers.
+
+Format:
+{
+  "name": "my_groove",
+  "bpm": 128,
+  "steps": 16,
+  "instruments": {
+    "kick": "X---X---X---X---",
+    "snare": "----X-------X---",
+    "hihat": "-X-X-X-X-X-X-X-X",
+    "bass":  "--X-----X--X----",
+    "clap":  "----X-------X---"
+  }
+}
+"""
+
+from __future__ import annotations
+
 import json
 import os
-from datetime import datetime
+from typing import Dict, Any
 
-EXPORT_DIR = "exports"
-PRESET_DIR = os.path.join(EXPORT_DIR, "presets")
 
-def save_track_as_json(track, name: str) -> str:
-    """
-    Saves BPM, steps, and instrument patterns to exports/presets/{name}.json.
-    Returns the absolute file path.
-    """
-    os.makedirs(PRESET_DIR, exist_ok=True)
+def save_preset(track, steps: int, file_path: str, name: str | None = None) -> str:
+    os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
 
-    data = {
-        "name": name,
-        "saved_at": datetime.now().isoformat(timespec="seconds"),
-        "bpm": track.get_bpm(),
-        "steps": getattr(track, "steps", 16),
-        "instruments": track.get_patterns(),
+    patterns = track.get_patterns().copy()
+    data: Dict[str, Any] = {
+        "name": name or os.path.splitext(os.path.basename(file_path))[0],
+        "bpm": int(track.get_bpm()),
+        "steps": int(steps),
+        "instruments": patterns,
     }
-    # sanitize filename
-    safe = "".join(c for c in name if c.isalnum() or c in (" ", "-", "_")).strip()
-    if not safe:
-        safe = "track"
 
-    filename = f"{safe}.json"
-    path = os.path.join(PRESET_DIR, filename)
-    with open(path, "w", encoding="utf-8") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-    abs_path = os.path.abspath(path)
-    print(f"Track preset saved to {abs_path}")
-    return abs_path
+
+    return file_path
+
+
+def load_preset(file_path: str) -> Dict[str, Any]:
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Basic validation/defaults
+    bpm = int(data.get("bpm", 120))
+    steps = int(data.get("steps", 16))
+    instruments = data.get("instruments", {}) or {}
+
+    # Coerce instrument values to strings
+    instruments = {k: str(v) for k, v in instruments.items()}
+
+    return {
+        "name": data.get("name") or os.path.splitext(os.path.basename(file_path))[0],
+        "bpm": bpm,
+        "steps": steps,
+        "instruments": instruments,
+    }
