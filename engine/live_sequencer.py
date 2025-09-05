@@ -1,5 +1,6 @@
 # engine/live_sequencer.py
 
+import os
 import time
 import threading
 from typing import Callable, Dict, Optional
@@ -39,6 +40,10 @@ class LiveSequencer:
         # Use duplex=0 to avoid mic input permissions on macOS
         self.server = Server(duplex=0).boot()
         self.server.start()
+        
+        # --- Recording state ---
+        self.recording = False
+        self._record_temp_path = None
 
         # UI callback to paint playhead
         self.playhead_callback: Optional[Callable[[int], None]] = None
@@ -154,3 +159,35 @@ class LiveSequencer:
                 # Use Event.wait so we can interrupt immediately on stop
                 if self._stop_event.wait(wait_time):
                     break
+
+    # -------------- audio recording export ---------------
+
+    def start_recording(self, temp_path: str):
+        """
+        Record the server's output to the given WAV file until stop_recording is called.
+        """
+        os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+        # fileformat=1 -> WAV, sampletype=0 -> 16-bit int (safest default)
+        self.server.recordOptions(dur=0, filename=temp_path, fileformat=1, sampletype=0)
+        self.server.recstart()
+        self.recording = True
+        self._record_temp_path = temp_path
+        print(f"[rec] started -> {temp_path}")
+
+    def stop_recording(self) -> str | None:
+        """
+        Stops recording. Returns the temp file path if a recording was active.
+        """
+        if not self.recording:
+            return None
+        self.server.recstop()
+        self.recording = False
+        print(f"[rec] stopped -> {self._record_temp_path}")
+        return self._record_temp_path
+
+    def make_temp_record_path(self) -> str:
+        """
+        Generates a unique temp filename under exports/live_tmp.
+        """
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        return os.path.join("exports", "live_tmp", f"recording_{stamp}.wav")

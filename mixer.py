@@ -1,7 +1,10 @@
+# mixer.py
+import os
+import shutil
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
-from engine.audio_exporter import export_to_wav
 from engine.pattern_exporter import save_track_as_json
 
 
@@ -18,6 +21,7 @@ class MixerUI:
         self.steps = int(getattr(self.track, "get_steps", lambda: 16)())
         self.pads = {instr: [] for instr in self.instruments}
         self.current_playhead = None
+        self.rec_active = False  # UI indicator state
 
         self.sequencer.playhead_callback = self.highlight_playhead
 
@@ -38,17 +42,22 @@ class MixerUI:
             foreground=[("active", "white")],
         )
 
-        # ===== TOP BAR: Transport + Export =====
+        # ===== TOP BAR: Transport + REC indicator + Save =====
         top = tk.Frame(self.root, bg="#1e1e1e")
         top.pack(pady=8, fill="x")
 
         ttk.Button(top, text="Start", style="Dark.TButton",
-                   command=self.sequencer.start).pack(side="left", padx=4)
+                   command=self.on_start_clicked).pack(side="left", padx=4)
         ttk.Button(top, text="Stop", style="Dark.TButton",
-                   command=self.stop_all).pack(side="left", padx=4)
+                   command=self.on_stop_clicked).pack(side="left", padx=4)
 
-        ttk.Button(top, text="Export Audio (WAV)", style="Dark.TButton",
-                   command=self.export_audio).pack(side="left", padx=8)
+        # REC indicator (red dot + label)
+        self.rec_canvas = tk.Canvas(top, width=18, height=18, bg="#1e1e1e", highlightthickness=0)
+        self.rec_canvas.pack(side="left", padx=(12, 2))
+        self.rec_dot = self.rec_canvas.create_oval(4, 4, 14, 14, fill="#550000", outline="#330000")
+        tk.Label(top, text="REC", fg="#ff6666", bg="#1e1e1e", font=("Helvetica", 10, "bold")).pack(side="left", padx=(2, 12))
+
+        # Save Track JSON
         ttk.Button(top, text="Save Track (JSON)", style="Dark.TButton",
                    command=self.save_track).pack(side="left", padx=4)
 
@@ -70,7 +79,7 @@ class MixerUI:
         bpm_slider.set(self.bpm_var.get())
         bpm_slider.pack(side="left")
 
-        # Pattern length
+        # Pattern length (8/16/32)
         tk.Label(ctrl, text="Pattern Length", fg="white", bg="#1e1e1e").pack(side="left", padx=(16, 6))
         self.length_var = tk.StringVar(value=str(self.steps))
         length_box = ttk.Combobox(ctrl, width=5, values=["8", "16", "32"], textvariable=self.length_var)
@@ -120,6 +129,7 @@ class MixerUI:
                 self.pad_frame, text=instr.upper(), fg="white", bg="#1e1e1e"
             ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
 
+        # create pads
             for col in range(self.steps):
                 pad = tk.Canvas(
                     self.pad_frame,
@@ -212,20 +222,62 @@ class MixerUI:
         for instr in self.instruments:
             self.update_pad_colors(instr)
 
-    # ---------- Transport / Export ----------
-    def stop_all(self):
+    # ---------- REC indicator helpers ----------
+    def _set_rec_indicator(self, active: bool):
+        self.rec_active = active
+        fill = "#ff3b30" if active else "#550000"
+        outline = "#aa0000" if active else "#330000"
+        try:
+            self.rec_canvas.itemconfig(self.rec_dot, fill=fill, outline=outline)
+        except Exception:
+            pass
+
+    # ---------- Transport / Recording ----------
+    def on_start_clicked(self):
+        # Always record between Start and Stop; indicator shows state
+        try:
+            temp_path = self.sequencer.make_temp_record_path()
+            self.sequencer.start_recording(temp_path)
+            self._set_rec_indicator(True)
+        except Exception as e:
+            self._set_rec_indicator(False)
+            messagebox.showwarning("Recording disabled", f"Could not start recording:\n{e}")
+        self.sequencer.start()
+
+    def on_stop_clicked(self):
         self.sequencer.stop()
 
-    def export_audio(self):
+        # If recording, stop and prompt to save
+        temp_path = None
         try:
-            # Ask optional file name
-            name = simpledialog.askstring("Export Audio", "File name (no extension):", initialvalue="output")
-            if not name:
-                return
-            path = export_to_wav(self.track, filename=f"{name}.wav")
-            messagebox.showinfo("Export", f"WAV exported:\n{path}")
+            if getattr(self.sequencer, "recording", False):
+                temp_path = self.sequencer.stop_recording()
         except Exception as e:
-            messagebox.showerror("Export failed", str(e))
+            messagebox.showwarning("Recording", f"Could not stop recording cleanly:\n{e}")
+        finally:
+            self._set_rec_indicator(False)
+
+        if temp_path and os.path.exists(temp_path):
+            default_name = time.strftime("take_%Y%m%d_%H%M%S")
+            name = simpledialog.askstring("Save Recording", "File name (no extension):", initialvalue=default_name)
+            if name:
+                safe = "".join(c for c in name if c.isalnum() or c in (" ", "-", "_")).strip() or default_name
+                final_path = os.path.join("exports", f"{safe}.wav")
+                os.makedirs("exports", exist_ok=True)
+                try:
+                    shutil.move(temp_path, final_path)
+                    messagebox.showinfo("Recording saved", os.path.abspath(final_path))
+                except Exception as e:
+                    messagebox.showerror("Save failed", str(e))
+            else:
+                # Cancel: discard the temp recording silently and return to UI
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+    def stop_all(self):
+        self.on_stop_clicked()
 
     def save_track(self):
         try:
@@ -239,8 +291,17 @@ class MixerUI:
 
     def exit_app(self):
         try:
-            self.stop_all()
-            self.sequencer.shutdown()
+            if getattr(self.sequencer, "recording", False):
+                try:
+                    self.sequencer.stop_recording()
+                except Exception:
+                    pass
+            self.sequencer.stop()
+            if hasattr(self.sequencer, "shutdown"):
+                try:
+                    self.sequencer.shutdown()
+                except Exception:
+                    pass
         finally:
             self.root.quit()
             self.root.destroy()
