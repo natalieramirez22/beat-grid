@@ -1,21 +1,40 @@
 # engine/synths.py
 """
 Synth and sample players for the live sequencer.
-- Pylance-friendly (no wildcard imports; targeted type ignores where pyo stubs are narrow).
-- Built-in headroom so the master mix doesn't clip on recordings.
-- Sample-based parts (hat/clap/snare) create a fresh player per hit to avoid stuck notes.
+- Avoids wildcard imports; silences pyo's noisy import prints.
+- Adds headroom to prevent clipping in recordings.
+- For sample-based parts (hat/clap/snare), keeps each SfPlayer alive
+  until the sample finishes so hits are not cut off by GC.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
-from typing import Optional, Any, cast
+import threading
+import wave
+from typing import Optional
 
-from pyo import Adsr, Linseg, Osc, SfPlayer, Sig, SigTo, Sine, SquareTable, SuperSaw
+# ---- Silence pyo import-time prints ----
+with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    from pyo import Adsr, Linseg, Osc, SfPlayer, Sig, SigTo, Sine, SquareTable, SuperSaw
 
-# Resolve assets/samples relative to project root for robustness
+
+# Resolve assets/samples relative to project root
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../engine -> project root
 ASSETS_DIR = os.path.join(_BASE_DIR, "assets", "samples")
+
+
+def _wav_duration_seconds(path: str, default: float = 0.5) -> float:
+    """Return duration of a WAV file in seconds (fallback to default if unknown)."""
+    try:
+        with wave.open(path, "rb") as w:
+            frames = w.getnframes()
+            rate = w.getframerate() or 44100
+            return max(default, frames / float(rate))
+    except Exception:
+        return default
 
 
 class BassSynth:
@@ -55,8 +74,8 @@ class BassSynth:
             decay=self.decay,
             sustain=0.3,
             release=0.05,
-            dur=cast(Any, 0.5),
-            mul=cast(Any, 1.0),
+            dur=0.5,  # type: ignore[arg-type]  # seconds
+            mul=1.0,  # type: ignore[arg-type]
         )
         self.output = self.osc * self.env  # type: ignore[operator]
         self.output.out()
@@ -119,19 +138,53 @@ class KickSynth:
         self.env.stop()
 
 
+class _OneShotSample:
+    """
+    Helper that plays a WAV and keeps a reference alive until it finishes,
+    then releases it. Prevents GC from stopping the sound prematurely.
+    """
+    def __init__(self, wav_path: str, volume_sig: Sig, gain: float = 0.8):
+        self.path = wav_path
+        self.volume_sig = volume_sig
+        self.gain = float(gain)
+        self._active = []  # list of live SfPlayer refs
+        self._dur = _wav_duration_seconds(self.path, default=0.5)
+
+    def trigger(self):
+        if not os.path.exists(self.path):
+            # Missing file: nothing to do (stay silent). You could add a fallback synth here.
+            return
+        p = SfPlayer(self.path, speed=1, loop=False, mul=self.volume_sig * self.gain)  # type: ignore[arg-type]
+        p.out()
+        self._active.append(p)
+        # Schedule release slightly after the sample ends
+        t = threading.Timer(self._dur + 0.1, self._release, args=(p,))
+        t.daemon = True
+        t.start()
+
+    def _release(self, p):
+        try:
+            # not strictly necessary to stop; letting it finish is fine
+            # but ensure we drop our reference so GC can clean it up
+            if p in self._active:
+                self._active.remove(p)
+        except Exception:
+            pass
+
+
 class HatSynth:
     def __init__(self, server, volume: float = 0.8):
         self.server = server
         self.volume = Sig(float(volume))
         self.file_path = os.path.join(ASSETS_DIR, "hihat.wav")
+        self.player = _OneShotSample(self.file_path, self.volume, gain=0.8)
 
     def update(self, param: str, value):
         if param == "volume":
             self.volume.value = float(value)
 
     def play(self):
-        # Stateless: new player per hit for clean transients
-        SfPlayer(self.file_path, speed=1, loop=False, mul=self.volume * 0.8).out()  # type: ignore[arg-type]
+        self.player.trigger()
 
     def stop(self):
         pass
@@ -142,13 +195,14 @@ class ClapSynth:
         self.server = server
         self.volume = Sig(float(volume))
         self.file_path = os.path.join(ASSETS_DIR, "clap.wav")
+        self.player = _OneShotSample(self.file_path, self.volume, gain=0.8)
 
     def update(self, param: str, value):
         if param == "volume":
             self.volume.value = float(value)
 
     def play(self):
-        SfPlayer(self.file_path, speed=1, loop=False, mul=self.volume * 0.8).out()  # type: ignore[arg-type]
+        self.player.trigger()
 
     def stop(self):
         pass
@@ -159,13 +213,14 @@ class SnareSynth:
         self.server = server
         self.volume = Sig(float(volume))
         self.file_path = os.path.join(ASSETS_DIR, "snare.wav")
+        self.player = _OneShotSample(self.file_path, self.volume, gain=0.8)
 
     def update(self, param: str, value):
         if param == "volume":
             self.volume.value = float(value)
 
     def play(self):
-        SfPlayer(self.file_path, speed=1, loop=False, mul=self.volume * 0.8).out()  # type: ignore[arg-type]
+        self.player.trigger()
 
     def stop(self):
         pass

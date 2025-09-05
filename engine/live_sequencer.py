@@ -1,21 +1,33 @@
 # engine/live_sequencer.py
 """
 Realtime step sequencer driven by a background thread.
-- Uses pyo exclusively for audio (no pygame needed).
+- Uses pyo exclusively for audio.
 - Fixed sample rate / channels for consistent recording and playback.
 - Built-in recording of the exact live output between Start and Stop.
+- Silences pyo's startup / MIDI scan / GUI backend messages.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import threading
 import time
 from typing import Callable, Dict, Optional
 
-from pyo import Server  # explicit import, no wildcard
+# ---- Silence pyo import-time prints ----
+with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    from pyo import Server  # explicit import, no wildcard
 
 from engine.synths import BassSynth, KickSynth, HatSynth, ClapSynth, SnareSynth
+
+
+@contextlib.contextmanager
+def _silence_pyo():
+    """Suppress stdout/stderr during noisy pyo operations."""
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        yield
 
 
 class LiveSequencer:
@@ -28,12 +40,12 @@ class LiveSequencer:
 
         # Start pyo server with explicit settings (stable SR avoids detune/recording drift)
         # - sr=44100 (CD quality), nchnls=2 (stereo)
-        # - buffersize=512 for stability (256 is snappier but higher CPU)
+        # - buffersize=512 for stability; lower if you want snappier timing (256)
         # - duplex=0 (output only)
-        self.server: Server = Server(sr=44100, nchnls=2, buffersize=512, duplex=0).boot()
-        # Global headroom so the master bus doesn't clip when recording
-        self.server.setAmp(0.8)
-        self.server.start()
+        with _silence_pyo():
+            self.server: Server = Server(sr=44100, nchnls=2, buffersize=512, duplex=0).boot()
+            self.server.setAmp(0.8)  # global headroom
+            self.server.start()
 
         # Optional UI callback for playhead highlight
         self.playhead_callback: Optional[Callable[[int], None]] = None
@@ -76,11 +88,12 @@ class LiveSequencer:
             self.stop()
         except Exception:
             pass
-        try:
-            self.server.stop()
-            self.server.shutdown()
-        except Exception:
-            pass
+        with _silence_pyo():
+            try:
+                self.server.stop()
+                self.server.shutdown()
+            except Exception:
+                pass
 
     # ---------------------------
     # Recording helpers
@@ -98,9 +111,10 @@ class LiveSequencer:
         Use 32-bit float WAV to avoid clipping/quantization issues.
         """
         os.makedirs(os.path.dirname(temp_path), exist_ok=True)
-        # fileformat=1 -> WAV, sampletype=3 -> 32-bit float
-        self.server.recordOptions(dur=0, filename=temp_path, fileformat=1, sampletype=3)
-        self.server.recstart()
+        with _silence_pyo():
+            # fileformat=1 -> WAV, sampletype=3 -> 32-bit float
+            self.server.recordOptions(dur=0, filename=temp_path, fileformat=1, sampletype=3)
+            self.server.recstart()
         self.recording = True
         self._record_temp_path = temp_path
         print(f"[rec] started -> {temp_path}")
@@ -111,7 +125,8 @@ class LiveSequencer:
         """
         if not self.recording:
             return None
-        self.server.recstop()
+        with _silence_pyo():
+            self.server.recstop()
         self.recording = False
         print(f"[rec] stopped -> {self._record_temp_path}")
         return self._record_temp_path
