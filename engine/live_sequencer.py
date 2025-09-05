@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import tempfile
 import threading
 import time
 from typing import Callable, Dict, Optional
@@ -98,12 +99,15 @@ class LiveSequencer:
     # ---------------------------
     # Recording helpers
     # ---------------------------
+
     def make_temp_record_path(self) -> str:
-        """Exports/temporary path for a unique recording filename."""
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        tmp_dir = os.path.join("exports", "live_tmp")
-        os.makedirs(tmp_dir, exist_ok=True)
-        return os.path.join(tmp_dir, f"recording_{stamp}.wav")
+        """
+        Exports/temporary path for a unique recording filename.
+        """
+        fd, path = tempfile.mkstemp(prefix="recording_", suffix=".wav")
+        os.close(fd)
+        os.unlink(path)
+        return path
 
     def start_recording(self, temp_path: str):
         """
