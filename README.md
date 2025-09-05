@@ -1,6 +1,6 @@
 # CLI Music Generator 🎛️
 
-A lightweight **GUI step-sequencer** for crafting beats. Click pads to program patterns, tweak synths, **record your performance to WAV**, and **save presets**.
+A lightweight GUI step-sequencer for fast beat sketches. Program 8/16/32-step patterns, tweak kick/bass (volume, decay, wave, freq), trigger hat/clap/snare samples, and capture live takes to WAV. Save and reload your tracks as JSON presets.
 
 ---
 
