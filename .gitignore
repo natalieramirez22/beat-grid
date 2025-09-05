@@ -1,7 +1,13 @@
-__pycache__/
-*.pyc
-*.wav
-*.mp3
-.env
-.DS_Store
+# Virtual environments
 venv/
+.venv/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc/
+
+# cli-music-gen specific
+exports/

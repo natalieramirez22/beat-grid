@@ -1,12 +1,16 @@
 # engine/live_sequencer.py
 
-import pygame
 import time
 import threading
-from pyo import *
+from typing import Callable, Dict, Optional
+
+import pygame
+from pyo import Server  # explicit import
+
 from engine.synths import BassSynth, KickSynth, HatSynth, ClapSynth, SnareSynth
 
-SAMPLE_PATHS = {
+
+SAMPLE_PATHS: Dict[str, str] = {
     "kick": "assets/samples/kick.wav",
     "snare": "assets/samples/snare.wav",
     "hihat": "assets/samples/hihat.wav",
@@ -14,68 +18,117 @@ SAMPLE_PATHS = {
     "bass": "assets/samples/bass.wav",
 }
 
+
 class LiveSequencer:
     def __init__(self, track):
         self.track = track
-        self.running = False
+        self._stop_event = threading.Event()
+        self._loop_thread: Optional[threading.Thread] = None
         self.step = 0
-        self.bpm = 120
-        self.loop_thread = None
 
+        # Defer to track bpm for consistency
+        self.bpm = max(1, int(self.track.get_bpm()))
+
+        # ---- pygame init (sample fallback only) ----
         pygame.mixer.init()
         self.sounds = {
-            name: pygame.mixer.Sound(path)
-            for name, path in SAMPLE_PATHS.items()
+            name: pygame.mixer.Sound(path) for name, path in SAMPLE_PATHS.items()
         }
-        
-        # Start pyo server
-        self.server = Server().boot()
+
+        # ---- pyo server init ----
+        # Use duplex=0 to avoid mic input permissions on macOS
+        self.server = Server(duplex=0).boot()
         self.server.start()
 
-        self.playhead_callback = None  # UI will set this
-        
-        # Synth instances
+        # UI callback to paint playhead
+        self.playhead_callback: Optional[Callable[[int], None]] = None
+
+        # ---- Synths ----
         self.bass_synth = BassSynth(self.server)
         self.kick_synth = KickSynth(self.server)
         self.hihat_synth = HatSynth(self.server)
         self.clap_synth = ClapSynth(self.server)
         self.snare_synth = SnareSynth(self.server)
+
+        # Let the track reach us if CLI or other code wants to poke synths
         track.sequencer = self
-        
 
-
+    # ---------------- public controls ----------------
 
     def start(self):
-        self.running = True
-        self.bpm = self.track.get_bpm()
-        self.loop_thread = threading.Thread(target=self.run_loop)
-        self.loop_thread.start()
+        """Start sequencer loop in a background thread."""
+        if self._loop_thread and self._loop_thread.is_alive():
+            return  # already running
+        self._stop_event.clear()
+        self.bpm = max(1, int(self.track.get_bpm()))
+        self._loop_thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._loop_thread.start()
         print("loop started")
 
     def stop(self):
-        self.running = False
-        if self.loop_thread:
-            self.loop_thread.join()
+        """Stop the sequencer loop and wait briefly for it to end."""
+        self._stop_event.set()
+        if self._loop_thread and self._loop_thread.is_alive():
+            # Don’t block Tk for too long; wait briefly
+            self._loop_thread.join(timeout=0.5)
         print("loop stopped")
 
-    def run_loop(self):
+    def shutdown(self):
+        """Full audio shutdown for app exit."""
+        # Stop loop
+        self.stop()
+
+        # Stop synth envelopes
+        try:
+            self.bass_synth.stop()
+            self.kick_synth.stop()
+            self.hihat_synth.stop()
+            self.clap_synth.stop()
+            self.snare_synth.stop()
+        except Exception:
+            pass
+
+        # Stop/close pyo
+        try:
+            if self.server.getIsStarted():
+                self.server.stop()
+            if self.server.getIsBooted():
+                # shutdown releases PortAudio resources
+                self.server.shutdown()
+        except Exception:
+            pass
+
+        # Quit pygame mixer
+        try:
+            pygame.mixer.quit()
+        except Exception:
+            pass
+
+        print("audio shutdown complete")
+
+    # ---------------- internal loop ----------------
+
+    def _run_loop(self):
         steps = 16
-
-        while self.running:
-            bpm = self.track.get_bpm()
-            beat_duration = 60 / bpm / 4  # 16th note
-
+        while not self._stop_event.is_set():
+            bpm_now = max(1, int(self.track.get_bpm()))
+            step_sec = 60.0 / bpm_now / 4.0  # 16th note
             for i in range(steps):
-                if self.playhead_callback:
-                    self.playhead_callback(i)
-                    
-                if not self.running:
+                if self._stop_event.is_set():
                     break
 
                 self.step = i
+                if self.playhead_callback:
+                    try:
+                        self.playhead_callback(i)
+                    except Exception:
+                        # Never crash the audio loop due to UI
+                        pass
+
                 start_time = time.time()
 
-                for name, pattern in self.track.get_patterns().copy().items():
+                # Pull the latest patterns every step (so UI toggles are live)
+                for name, pattern in list(self.track.get_patterns().items()):
                     if i < len(pattern) and pattern[i].upper() == "X":
                         if name == "bass":
                             self.bass_synth.play()
@@ -88,12 +141,15 @@ class LiveSequencer:
                         elif name == "snare":
                             self.snare_synth.play()
                         else:
-                            self.sounds[name].set_volume(0.5)
-                            self.sounds[name].play()
+                            # Fallback to sample if defined
+                            snd = self.sounds.get(name)
+                            if snd:
+                                snd.set_volume(0.5)
+                                snd.play()
 
-                # Wait precisely until the next step
                 elapsed = time.time() - start_time
-                wait_time = max(0, beat_duration - elapsed)
-                time.sleep(wait_time)
+                wait_time = max(0.0, step_sec - elapsed)
 
-
+                # Use Event.wait so we can interrupt immediately on stop
+                if self._stop_event.wait(wait_time):
+                    break

@@ -1,5 +1,7 @@
 # dsl_parser.py
 
+# Not relevant to UI, only for CLI mode
+
 from engine.audio_exporter import export_to_wav
 
 def parse_command(cmd, track):
