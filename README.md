@@ -45,7 +45,7 @@ Notes: Kick and Bass are synthesized (no samples needed). Clap/Snare/Hihat use W
 
 ## Project Layout
 ```bash
-cli-music-gen/
+beatgrid/
 ├─ assets/
 │  ├─ bass.wav          # (not required; bass is synthesized)
 │  ├─ clap.wav          # used
